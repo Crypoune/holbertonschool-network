@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# This script shows the IP addresses that are attached to the host
+
+ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}'
