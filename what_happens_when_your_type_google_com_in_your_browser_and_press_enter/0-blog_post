@@ -1,0 +1,113 @@
+What Happens When You Type https://www.google.com and Press Enter?
+
+A journey through the full web stack from a keystroke to a rendered search page covering every layer of the internet.
+
+You've done it thousands of times without thinking. You type a URL, press Enter, and a page materializes. But beneath that instant of apparent magic is a remarkably complex chain of events, one that software engineers are expected to understand deeply. Let's trace every step.
+
+Step 1 - DNS Resolution
+
+1. The Phone Book of the Internet
+
+Before your browser can talk to Google, it needs to know where Google lives, that is, its IP address. Humans use readable names like www.google.com; machines use numeric addresses like 142.250.185.68. Translating between the two is the job of the Domain Name System (DNS).
+
+The lookup follows a strict hierarchy. First, your browser checks its own cache. If it finds a recent result, great ! done. If not, it asks your operating system, which checks its own cache and the local /etc/hosts file. Still no result? The request goes to your ISP's recursive resolver.
+
+The recursive resolver then walks the DNS tree: it asks a root nameserver (there are 13 root server clusters globally) which nameserver handles .com domains. That TLD nameserver then points to Google's authoritative nameserver, which finally returns the actual IP. The resolver caches this result according to the record's TTL and returns it to your browser.
+
+Interview Tip: DNS is where most candidates lose points. Be specific: mention the recursive resolver, root servers, TLD servers, and authoritative servers. Know what TTL means. Know that A records map hostnames to IPv4, AAAA to IPv6, and CNAME records are aliases.
+
+Step 2 - TCP/IP
+
+2. Opening a Reliable Connection
+
+With an IP address in hand, your browser needs to establish a connection. The internet is built on the TCP/IP protocol suite. IP (Internet Protocol) is the addressing layer, it routes packets from machine to machine across networks. TCP (Transmission Control Protocol) sits on top and provides reliability: ordered delivery, retransmission of lost packets, and flow control.
+
+Before any data is exchanged, TCP requires a three-way handshake:
+
+SYN: Your browser sends a synchronize packet to Google's server, requesting a connection and sharing its initial sequence number.
+
+SYN-ACK: Google's server acknowledges and sends back its own sequence number.
+
+ACK: Your browser acknowledges, and the connection is established.
+
+This handshake introduces a round-trip of latency before a single byte of application data is sent, a meaningful cost that HTTPS compounds with its own handshake (see below).
+
+Deeper Context: HTTP/2 and HTTP/3 were partly designed to address TCP's overhead. HTTP/3 replaces TCP with QUIC, a UDP-based protocol that multiplexes streams and integrates TLS — cutting connection setup from two round-trips to one (or even zero for repeat visits).
+
+Step 3 - Firewall
+
+3. The Traffic Inspector
+
+As packets travel across the network — and as they arrive at Google's infrastructure — they pass through firewalls. A firewall is a system (hardware, software, or both) that inspects network traffic and enforces rules about what is and isn't allowed through.
+
+On your side, your router or OS firewall may filter outbound traffic. On Google's side, multiple layers of firewalls sit at the network perimeter and in front of internal services. At a minimum, they enforce that only expected traffic reaches each service: port 443 for HTTPS, for example.
+
+Modern firewalls are stateful — they track the state of connections rather than evaluating each packet in isolation. A stateful firewall allows response packets back to your browser because it knows you initiated a legitimate connection. More sophisticated Web Application Firewalls (WAFs) inspect HTTP request content, blocking SQL injection attempts, cross-site scripting payloads, and malformed requests before they reach any application code.
+
+Security Layer: At scale, companies like Google also use DDoS mitigation systems — often called "scrubbing centers" — that sit in front of firewalls and absorb volumetric attacks before they overwhelm the network edge.
+
+Step 4 - HTTPS / SSL / TLS
+
+4. Encrypting the Conversation
+
+The https:// prefix in the URL isn't decorative. It means every byte of your request and Google's response will be encrypted. HTTPS is HTTP running over TLS (Transport Layer Security) — the modern successor to the now-deprecated SSL protocol (though "SSL" is still colloquially used to mean TLS).
+
+After the TCP handshake, a TLS handshake occurs. In TLS 1.3 (the current standard), this takes a single round-trip: your browser sends its supported cipher suites and a key share; the server responds with its chosen cipher, its certificate, and its own key share. Both sides then independently derive the same symmetric encryption keys using a key exchange algorithm like ECDHE (Elliptic Curve Diffie-Hellman Ephemeral).
+
+The server's certificate — issued by a trusted Certificate Authority like DigiCert or Google's own CA — proves that you're actually talking to www.google.com and not an impersonator. Your browser verifies the certificate's signature chain up to a root CA it trusts. If anything fails, the browser shows a security warning instead of loading the page.
+
+Key Concept: The "ephemeral" in ECDHE matters: each session generates fresh key material. This provides forward secrecy — even if a server's private key is later compromised, past sessions can't be decrypted retroactively.
+
+Step 5 - Load Balancer
+
+5. Distributing the Work
+
+Your encrypted request arrives at Google's infrastructure — but "Google" isn't a single server. At any moment, billions of people are using Google. The system that makes this feasible is the load balancer.
+
+A load balancer is a reverse proxy that sits in front of a pool of servers and distributes incoming requests among them. Common strategies include round robin (requests cycle through servers in order), least connections (new requests go to the server with the fewest active connections), and IP hash (a hash of the client's IP always maps to the same server — useful for session affinity).
+
+Google operates load balancing at multiple levels. At the global level, Anycast routing and DNS-based geo-routing direct your request to the nearest data center before it even touches a load balancer. Within a data center, hardware and software load balancers distribute traffic across clusters of web servers. Google's custom Maglev load balancer, described in their 2016 research paper, handles millions of packets per second per machine.
+
+Availability Pattern: Load balancers also perform health checks — periodically pinging backend servers and removing unhealthy ones from the pool. This makes the system resilient: a single server crash doesn't take the site down.
+
+Step 6 - Web Server
+
+6. Handling the HTTP Request
+
+The load balancer forwards your request to a web server. A web server's primary job is to understand HTTP — parse the request headers, determine what resource is being requested, and figure out how to respond.
+
+For static content (images, CSS files, JavaScript bundles, cached HTML), the web server can respond directly from disk or memory cache without involving any application logic. This is extremely fast. Web servers like Nginx and Apache are highly optimized for this use case, capable of serving tens of thousands of concurrent connections on a single machine.
+
+For dynamic content — like a personalized Google search results page — the web server recognizes that it needs to involve application code and proxies the request to an application server. The web server acts as a gatekeeper and router, handling concerns like SSL termination (sometimes), compression, caching headers, and request logging, while delegating business logic elsewhere.
+
+Caching: Web servers are usually the layer where HTTP caching headers are set — Cache-Control, ETag, Last-Modified. These tell browsers and CDN nodes how long to cache a resource, dramatically reducing server load for repeat requests.
+
+Step 7 - Application Server
+
+7. Where the Logic Lives
+
+The application server is where the actual software that makes Google "Google" runs. In Google's case, this means the systems that understand your search query, consult the search index, apply ranking algorithms, personalize results based on your account, and assemble an HTML response. For a more typical web application, this might be a Node.js, Python, Ruby, or Java process running the business logic.
+
+The application server receives the HTTP request from the web server, executes the relevant code path, and typically makes calls to other services and databases to gather the data it needs. It may call internal microservices — an authentication service, a recommendation service, an ads service — aggregating their responses into a final page. This orchestration is often the most latency-sensitive part of the stack.
+
+At Google's scale, the "application server" is itself a distributed system of thousands of specialized services — search backends, knowledge graph lookups, spell checkers, instant answer services — all coordinating to produce a single page in under 200 milliseconds.
+
+Architecture Note: Google pioneered concepts like RPC frameworks (Remote Procedure Calls) for inter-service communication long before the industry adopted them broadly. Their internal Stubby framework was the precursor to the open-source gRPC protocol now widely used for microservice communication.
+
+Step 8 - Database
+
+8. Persistent Storage at the Bottom
+
+At the base of the stack sits the database — the system of record for persistent data. For most web applications, this means a relational database (PostgreSQL, MySQL) for structured data with complex relationships, or a NoSQL database (MongoDB, Cassandra, Redis) for documents, wide-column data, or caching.
+
+Google's data infrastructure is famously custom-built at every layer. Their Bigtable (a distributed wide-column store), Spanner (a globally distributed relational database with external consistency), and Colossus (a distributed file system) are foundational systems that influenced the entire industry — Bigtable and MapReduce directly inspired the Hadoop ecosystem; Spanner's concepts influenced CockroachDB and YugabyteDB.
+
+For the Google search page specifically, your query isn't hitting a traditional database at all — it's hitting the search index, a massively pre-computed inverted index stored across thousands of machines. The application server queries this index and retrieves top results in parallel, then applies ranking logic before assembling the response.
+
+Read vs Write: Web applications often use a read replica pattern — writes go to a primary database, which replicates to secondary replicas that serve reads. Since most web traffic is reads, this dramatically increases throughput. A caching layer (e.g., Redis or Memcached) in front of the database further reduces load by serving repeated queries from memory.
+
+Putting It All Together
+
+From a single keystroke to a fully rendered search page, your request crosses continents, passes through dozens of systems, and returns — often in under half a second. The DNS resolver finds the IP. TCP opens a reliable channel. The firewall checks the traffic. TLS encrypts everything. The load balancer picks a server. The web server routes the request. The application server runs the logic. The database provides the data. Each layer has a precise responsibility, and each is independently scalable, replaceable, and testable.
+
+Understanding this pipeline is foundational for any software engineer. It explains why DNS caching bugs cause outages, why TLS certificate expiry takes down sites, why databases are so often the bottleneck, and why horizontal scaling requires careful session management. Master this stack, and you'll understand why most systems are built the way they are.
